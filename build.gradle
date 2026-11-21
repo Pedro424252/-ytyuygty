@@ -1,0 +1,85 @@
+plugins {
+    id 'fabric-loom' version '1.14-SNAPSHOT'
+}
+version = project.mod_version
+group = 'com.example'
+base { archivesName = 'money' }
+repositories {
+    mavenCentral()
+}
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") { expand "version": project.version }
+}
+tasks.withType(JavaCompile).configureEach { it.options.release = 21 }
+java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
+
+// ---------------------------------------------------------------------------
+// ProGuard: remapJar'in urettigi normal jar'i alip, ayni davranan ama
+// sinif/metot/degisken adlari anlamsizlastirilmis (a, b, c...) ikinci bir jar
+// uretir. Boylece kaynagi olmayan biri jar'i decompile etmeye calissa bile
+// kodun akisini takip etmesi ciddi sekilde zorlasir.
+//
+// Fabric'in calisabilmesi icin korunmasi ZORUNLU olan seyler:
+//   - entrypoint siniflarinin TAM ADI (fabric.mod.json bunlari metin olarak,
+//     reflection ile yukler)
+//   - mixin siniflarinin TAM ADI (money.mixins.json / aesirpara.mixins.json
+//     bunlari metin olarak, Mixin alt sistemi ile yukler)
+//   - butun @Mixin / @Inject / @ClientModInitializer gibi anotasyonlar
+// Bunlarin disindaki her sey (yardimci metotlar, alanlar, yerel degiskenler,
+// private siniflar) serbestce yeniden adlandirilir.
+// ---------------------------------------------------------------------------
+buildscript {
+    repositories { mavenCentral() }
+    dependencies { classpath 'com.guardsquare:proguard-gradle:7.5.0' }
+}
+
+configurations { proguardLibs }
+dependencies {
+    // ProGuard, bytecode'u dogru cozumleyebilmek icin Minecraft + Fabric API
+    // siniflarinin tamamina (kutuphane olarak, obfuscate ETMEDEN) ihtiyac duyar.
+    proguardLibs "com.mojang:minecraft:${project.minecraft_version}"
+    proguardLibs "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    proguardLibs "net.fabricmc:fabric-loader:${project.loader_version}"
+}
+
+tasks.register('obfuscateJar', proguard.gradle.ProGuardTask) {
+    dependsOn tasks.named('remapJar')
+    group = 'build'
+    description = 'remapJar ciktisini obfuscate edilmis ikinci bir jar olarak uretir (money-1.0.0-obf.jar).'
+
+    injars tasks.named('remapJar').get().archiveFile.get().asFile
+    outjars layout.buildDirectory.file("libs/${archivesBaseName}-${version}-obf.jar").get().asFile
+
+    // calisma zamani (JDK 21) modulleri + Minecraft/Fabric siniflari, SADECE
+    // referans icin; bunlarin kendisi degistirilmez.
+    libraryjars "${System.getProperty('java.home')}/jmods/java.base.jmod", jarfilter: '!**.jar', filter: '!module-info.class'
+    configurations.proguardLibs.each { libraryjars it.absolutePath }
+
+    dontshrink                 // kullanilmayan kod gibi gorunen hicbir sey silinmesin (yanlislikla calisan kod atilmasin)
+    dontoptimize               // bytecode'u yeniden duzenleyip davranisi riske atmasin, sadece adlandirma degissin
+    dontwarn
+    ignorewarnings
+    allowaccessmodification
+    useuniqueclassmembernames
+    overloadaggressively
+    keepattributes '*Annotation*,Signature,InnerClasses,EnclosingMethod'
+
+    // --- Fabric'in isim ile yukledigi/aradigi her sey oldugu gibi kalsin ---
+    keep 'class com.example.money.Money { public *; }'
+    keep 'class com.example.aesirpara.AesirPara { public *; }'
+    keep 'class com.example.aesirpara.AesirParaScreen'
+    keep 'class com.example.money.mixin.ChatHudMixin'
+    keep 'class com.example.money.mixin.SoundMixin'
+    keep 'class com.example.aesirpara.mixin.EntityRendererMixin'
+    keepclassmembers 'class * { @org.spongepowered.asm.mixin.injection.Inject *; }'
+    keepclassmembers 'class * { @org.spongepowered.asm.mixin.Mixin *; }'
+}
+
+tasks.named('build') { dependsOn tasks.named('obfuscateJar') }

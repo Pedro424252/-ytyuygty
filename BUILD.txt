@@ -1,0 +1,5 @@
+gradle build  ->  build/libs/money-1.0.0.jar       (normal, mods klasorune bu konulur)
+              ->  build/libs/money-1.0.0-obf.jar   (ayni mod, obfuscate edilmis - kaynagini paylasmadan dagitmak icin)
+
+Her iki jar da ayni sekilde calisir. "-obf" olanin ici decompile edilince
+sinif/metot adlari (a, b, c...) anlamsizdir, mantigi takip etmek zorlasir.
